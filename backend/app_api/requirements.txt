@@ -1,0 +1,9 @@
+requests
+pydantic
+python-dotenv
+pandas
+
+fastapi
+uvicorn[standard]
+pydantic
+psycopg2-binary

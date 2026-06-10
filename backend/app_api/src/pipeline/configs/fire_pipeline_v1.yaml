@@ -1,0 +1,58 @@
+id: fire_pipeline_v1
+name: Fire Detection Pipeline V1
+version: "1.0"
+
+runtime:
+  stop_on_error: true
+  stop_on_not_relevant: true
+  save_trace: true
+
+steps:
+  - id: relevance
+    name: Relevance Classifier
+    enabled: true
+    component: relevance.transformer_classifier
+    input:
+      text: tweet.text
+    output: relevance
+    params:
+      positive_labels: ["low_signal"]
+      negative_labels: ["noise"]
+      threshold: 0.5
+
+  - id: extraction
+    name: Location Extraction
+    enabled: true
+    component: extraction.location_extractor
+    input:
+      text: tweet.text
+    output: locations.raw
+    params:
+      threshold: 0.35
+      max_locations: 10
+
+  - id: geocoding
+    name: Photon Geocoding
+    enabled: true
+    component: geocoding.photon
+    input:
+      locations: locations.raw
+    output: locations.geocoded
+    params:
+      limit: 5
+      country: HR
+      min_confidence: 0.0
+
+  - id: event_matching
+    name: Event Matching
+    enabled: true
+    component: event.matching
+    input:
+      locations: locations.geocoded
+      text: tweet.text
+      relevance: relevance
+    output: event_matching
+    params:
+      max_distance_km: 5.0
+      time_window_minutes: 120
+      create_if_no_match: true
