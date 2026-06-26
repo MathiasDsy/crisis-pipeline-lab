@@ -1,10 +1,5 @@
 <template>
   <div class="app-layout">
-    <TopBar :active-events="events.length" :alerts="1" @toggle-menu="menuOpen = true" @refresh="loadEvents"
-      @run-simulation="runSimulation" />
-
-    <LeftNav :open="menuOpen" @close="menuOpen = false" />
-
     <main class="app-body">
       <RouterView />
     </main>

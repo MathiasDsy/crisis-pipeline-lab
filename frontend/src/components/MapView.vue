@@ -23,31 +23,40 @@ onMounted(async () => {
     await loadEvents()
 })
 
+function flyToPoint(lat: number, lon: number, zoom: number = 12) {
+    console.log(`Fly to point: ${lat}, ${lon} with zoom ${zoom}`)
+    map?.flyTo([lat, lon], zoom)
+}
+
+
 async function loadEvents() {
     const events = await getEvents()
-
+    
     eventLayer.clearLayers()
-
+    
     for (const event of events) {
         const lat = event.center_lat
         const lon = event.center_lon
-
+        
         L.marker([lat, lon])
-            .addTo(eventLayer)
-            .bindPopup(`
+        .addTo(eventLayer)
+        .bindPopup(`
         <strong>🔥 Event</strong><br/>
         ID: ${event.id}<br/>
         Status: ${event.status}<br/>
         Tweets: ${event.tweet_count}<br/>
         Latest: ${event.latest_tweet_text ?? 'No tweet'}<br/>
         Radius: ${event.radius_km} km
-      `)
-
+        `)
+        
         L.circle([lat, lon], {
             radius: event.radius_km * 1000
         }).addTo(eventLayer)
     }
 }
+defineExpose({
+  flyToPoint
+})
 </script>
 
 <style scoped>
