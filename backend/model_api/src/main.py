@@ -1,66 +1,173 @@
 import os
-from fastapi import FastAPI
-from pydantic import BaseModel
+from contextlib import asynccontextmanager
+from typing import Any
+
 import torch
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
+from fastapi import APIRouter, FastAPI, HTTPException
 from gliner import GLiNER
+from pydantic import BaseModel
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
-MODEL_RELEVANCE_PATH = os.getenv("RELEVANCE_MODEL_PATH", "/app/data/models/relevance_model")
-MODEL_GLINER_PATH = os.getenv("GLINER_MODEL_PATH", "/app/data/models/gliner_multi-v2.1")
+# =====================================================
+# State
+# =====================================================
 
-app = FastAPI(title="Crisis Geo Dev API")
+_state: dict[str, Any] = {
+    "classifier": {
+        "model_key": None,
+        "tokenizer": None,
+        "model": None,
+        "device": None,
+    },
+    "gliner": {
+        "model_key": None,
+        "model": None,
+    },
+}
 
-tokenizer = None
-model = None
-device = None
-model_gliner = None
+DEFAULT_RELEVANCE_PATH = os.getenv("RELEVANCE_MODEL_PATH", "/app/storage/models/relevance_model")
+DEFAULT_GLINER_PATH = os.getenv("GLINER_MODEL_PATH", "/app/storage/models/gliner_multi-v2.1")
+
+# =====================================================
+# Loaders
+# =====================================================
+
+def _load_classifier(model_key: str, local_path: str) -> None:
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    tokenizer = AutoTokenizer.from_pretrained(local_path, local_files_only=True)
+    model = AutoModelForSequenceClassification.from_pretrained(local_path, local_files_only=True)
+    model.to(device)
+    model.eval()
+
+    _state["classifier"]["model_key"] = model_key
+    _state["classifier"]["tokenizer"] = tokenizer
+    _state["classifier"]["model"] = model
+    _state["classifier"]["device"] = device
+
+
+def _load_gliner(model_key: str, local_path: str) -> None:
+    model = GLiNER.from_pretrained(local_path, local_files_only=True)
+
+    _state["gliner"]["model_key"] = model_key
+    _state["gliner"]["model"] = model
+
+
+# =====================================================
+# Startup
+# =====================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    try:
+        _load_classifier(model_key="default_classifier", local_path=DEFAULT_RELEVANCE_PATH)
+        print(f"[startup] Classifier loaded from {DEFAULT_RELEVANCE_PATH}")
+    except Exception as e:
+        print(f"[startup] Classifier load failed: {e}")
+
+    try:
+        _load_gliner(model_key="default_gliner", local_path=DEFAULT_GLINER_PATH)
+        print(f"[startup] GLiNER loaded from {DEFAULT_GLINER_PATH}")
+    except Exception as e:
+        print(f"[startup] GLiNER load failed: {e}")
+
+    yield
+
+
+app = FastAPI(title="Crisis Model Server", lifespan=lifespan)
+
+# =====================================================
+# Schemas
+# =====================================================
 
 class PredictRequest(BaseModel):
     text: str
 
 class ExtractLocationRequest(BaseModel):
     text: str
+    labels: list[str] = ["location", "city", "region", "country"]
+    threshold: float = 0.5
 
-@app.on_event("startup")
-def load_model():
-    global tokenizer, model, device, model_gliner
+class LoadModelRequest(BaseModel):
+    model_key: str
+    local_path: str
+    loader: str
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+# =====================================================
+# Routers
+# =====================================================
 
-    tokenizer = AutoTokenizer.from_pretrained(
-        MODEL_RELEVANCE_PATH,
-        local_files_only=True
-    )
+health_router = APIRouter(tags=["health"])
+models_router = APIRouter(prefix="/models", tags=["models"])
+inference_router = APIRouter(tags=["inference"])
 
-    model = AutoModelForSequenceClassification.from_pretrained(
-        MODEL_RELEVANCE_PATH,
-        local_files_only=True
-    )
+# =====================================================
+# Health
+# =====================================================
 
-    model.to(device)
-    model.eval()
-
-    model_gliner = GLiNER.from_pretrained(MODEL_GLINER_PATH, local_files_only=True)
-
-@app.get("/health")
+@health_router.get("/health")
 def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "classifier_loaded": _state["classifier"]["model_key"] is not None,
+        "gliner_loaded": _state["gliner"]["model_key"] is not None,
+    }
+
+# =====================================================
+# Models
+# =====================================================
+
+@models_router.get("/current")
+def get_current_models():
+    return {
+        "classifier": {"model_key": _state["classifier"]["model_key"]},
+        "gliner": {"model_key": _state["gliner"]["model_key"]},
+    }
 
 
-@app.post("/extract-locations")
-def extract_locations(req: ExtractLocationRequest):
-    labels = ["location", "city", "region", "country"]
+@models_router.post("/load/classifier")
+def load_classifier(req: LoadModelRequest):
+    try:
+        _load_classifier(model_key=req.model_key, local_path=req.local_path)
+        return {"status": "loaded", "model_key": req.model_key, "loader": req.loader}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load classifier: {e}")
 
-    entities = model_gliner.predict_entities(
-        req.text,
-        labels,
-        threshold=0.5,
-    )
 
-    return {"entities": entities}
+@models_router.post("/load/location_extractor")
+def load_location_extractor(req: LoadModelRequest):
+    try:
+        _load_gliner(model_key=req.model_key, local_path=req.local_path)
+        return {"status": "loaded", "model_key": req.model_key, "loader": req.loader}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to load GLiNER: {e}")
 
-@app.post("/predict")
+
+@models_router.post("/unload/classifier")
+def unload_classifier():
+    _state["classifier"] = {"model_key": None, "tokenizer": None, "model": None, "device": None}
+    return {"status": "unloaded"}
+
+
+@models_router.post("/unload/location_extractor")
+def unload_location_extractor():
+    _state["gliner"] = {"model_key": None, "model": None}
+    return {"status": "unloaded"}
+
+# =====================================================
+# Inference
+# =====================================================
+
+@inference_router.post("/predict")
 def predict(req: PredictRequest):
+    tokenizer = _state["classifier"]["tokenizer"]
+    model = _state["classifier"]["model"]
+    device = _state["classifier"]["device"]
+    model_key = _state["classifier"]["model_key"]
+
+    if model is None or tokenizer is None:
+        raise HTTPException(status_code=503, detail="Classifier model not loaded")
+
     inputs = tokenizer(
         req.text,
         return_tensors="pt",
@@ -76,10 +183,36 @@ def predict(req: PredictRequest):
         pred = torch.argmax(probs, dim=1).item()
         score = probs[0][pred].item()
 
-    label = model.config.id2label[pred]   # "noise" ou "low_signal"
+    label = model.config.id2label[pred]
+    is_relevant = label.lower() not in ("noise", "not_relevant", "not relevant", "off-topic")
 
     return {
         "label": label,
-        "is_low_signal": label == "Low Signal",
-        "confidence": score
+        "is_relevant": is_relevant,
+        "confidence": score,
+        "model_key": model_key,
     }
+
+
+@inference_router.post("/extract-locations")
+def extract_locations(req: ExtractLocationRequest):
+    model = _state["gliner"]["model"]
+    model_key = _state["gliner"]["model_key"]
+
+    if model is None:
+        raise HTTPException(status_code=503, detail="GLiNER model not loaded")
+
+    entities = model.predict_entities(req.text, req.labels, threshold=req.threshold)
+
+    return {
+        "entities": entities,
+        "model_key": model_key,
+    }
+
+# =====================================================
+# Register routers
+# =====================================================
+
+app.include_router(health_router)
+app.include_router(models_router)
+app.include_router(inference_router)

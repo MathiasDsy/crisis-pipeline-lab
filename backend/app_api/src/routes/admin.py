@@ -1,6 +1,6 @@
 from fastapi import APIRouter
-
 from src.database.db import check_database_connection
+from src.repositories.log_repository import list_logs
 
 router = APIRouter(
     prefix="/admin",
@@ -60,3 +60,18 @@ def database_health():
     Vérifie la connexion PostgreSQL.
     """
     return check_database_connection()
+
+
+@router.get("/logs")
+def get_logs(
+    run_id: str | None = None,
+    level: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+):
+    logs = list_logs(run_id=run_id, level=level, limit=limit, offset=offset)
+    return {
+        "logs": logs,
+        "count": len(logs),
+        "filters": {"run_id": run_id, "level": level},
+    }

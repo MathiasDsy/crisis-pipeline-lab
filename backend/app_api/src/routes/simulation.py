@@ -1,12 +1,12 @@
 from pydantic import BaseModel
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 
 from src.repositories.run_repository import cancel_run, get_run_by_id
 from src.repositories.tweet_repository import list_tweets_by_run_id
 from src.repositories.event_repository import list_events_by_run_id
 from src.repositories.pipeline_step_repository import list_step_executions_by_run_id
 
-from src.services.simulation_service import start_simulation_service
+from src.services.simulation_service import request_cancel, run_simulation_background, start_simulation_service
 from src.services.metrics_service import compute_run_metrics
 
 
@@ -23,12 +23,23 @@ class StartSimulationRequest(BaseModel):
 
 
 @router.post("/start")
-def start_simulation(request: StartSimulationRequest):
-    return start_simulation_service(
+def start_simulation(request: StartSimulationRequest, background_tasks: BackgroundTasks):
+    result = start_simulation_service(
         dataset_id=request.dataset_id,
         pipeline_config_id=request.pipeline_config_id,
         force_rerun=request.force_rerun,
     )
+
+    if result["status"] == "started":
+        internal = result.pop("_internal")
+        background_tasks.add_task(
+            run_simulation_background,
+            run_id=result["run_id"],
+            df=internal["df"],
+            pipeline=internal["pipeline"],
+        )
+
+    return result
 
 
 @router.get("/{run_id}")
@@ -97,7 +108,10 @@ def get_simulation_metrics(run_id: str):
 
 @router.post("/{run_id}/cancel")
 def cancel_simulation(run_id: str):
+    # Signal au thread background s'il tourne encore en mémoire
+    request_cancel(run_id)
 
+    # Mise à jour BDD (idempotent si le thread l'a déjà fait)
     run = cancel_run(run_id)
 
     if run is None:

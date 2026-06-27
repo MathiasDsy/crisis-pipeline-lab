@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from src.repositories.tweet_repository import count_tweets_by_run_id, list_tweets_by_run_id
+from src.services.metrics_service import compute_run_metrics
 
 from src.repositories.run_repository import (
     list_runs as list_runs_from_db,
@@ -11,6 +12,7 @@ from src.repositories.run_repository import (
 from src.repositories.tweet_repository import (
     list_tweets_by_run_id,
     count_tweets_by_run_id,
+    list_false_negatives_by_run_id,
 )
 from src.repositories.event_repository import list_events_by_run_id
 from src.repositories.pipeline_step_repository import (
@@ -39,6 +41,28 @@ def list_runs(
             "status": status,
         },
     }
+
+@router.get("/compare")
+def compare_runs(run_ids: str = Query(..., description="Comma-separated list of run IDs")):
+    ids = [r.strip() for r in run_ids.split(",") if r.strip()]
+
+    if len(ids) < 2:
+        raise HTTPException(status_code=400, detail="Provide at least 2 run_ids to compare")
+
+    comparison = []
+    for run_id in ids:
+        if get_run_by_id(run_id) is None:
+            raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
+
+        metrics = compute_run_metrics(run_id)
+        metrics.pop("per_tweet", None)
+        comparison.append(metrics)
+
+    return {
+        "run_ids": ids,
+        "comparison": comparison,
+    }
+
 
 @router.get("/{run_id}")
 def get_run(run_id: str):
@@ -117,6 +141,20 @@ def get_run_summary(run_id: str):
         "started_at": run["started_at"],
         "finished_at": run["finished_at"],
     }
+
+@router.get("/{run_id}/hard-cases")
+def get_run_hard_cases(run_id: str):
+    if get_run_by_id(run_id) is None:
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
+
+    hard_cases = list_false_negatives_by_run_id(run_id)
+
+    return {
+        "run_id": run_id,
+        "count": len(hard_cases),
+        "hard_cases": hard_cases,
+    }
+
 
 @router.get("/{run_id}/tweets")
 def get_run_tweets(
