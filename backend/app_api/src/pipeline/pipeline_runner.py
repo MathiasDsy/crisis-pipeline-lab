@@ -4,6 +4,7 @@ from typing import Any
 from src.components.registry import COMPONENT_REGISTRY
 from src.pipeline.utils import resolve_inputs, set_path
 from src.repositories.pipeline_step_repository import create_step_execution
+import src.logger as logger
 
 
 class PipelineRunner:
@@ -26,6 +27,7 @@ class PipelineRunner:
                 "id": tweet_id,
                 "content": text,
             },
+            "run_id": run_id,
             "outputs": {},
         }
 
@@ -45,6 +47,8 @@ class PipelineRunner:
 
                 inputs = resolve_inputs(context, step.get("input", {}))
 
+                print(f"[pipeline] tweet={tweet_id} step={step_id} ({component_key}) → running")
+
                 output = component.run(
                     inputs=inputs,
                     params=step.get("params", {}),
@@ -56,6 +60,7 @@ class PipelineRunner:
                 context["outputs"][step_id] = output.result
 
                 status = "success" if output.passed else "blocked"
+                print(f"[pipeline] tweet={tweet_id} step={step_id} → {status}")
 
                 step_record = {
                     "run_id": run_id,
@@ -75,6 +80,14 @@ class PipelineRunner:
                     break
 
             except Exception as e:
+                logger.error(
+                    f"Step '{step_id}' raised an exception on tweet {tweet_id}: {e}",
+                    context="pipeline_runner",
+                    run_id=run_id,
+                    exc=e,
+                    details={"step_id": step_id, "tweet_id": tweet_id, "component": component_key},
+                )
+
                 step_record = {
                     "run_id": run_id,
                     "tweet_id": tweet_id,

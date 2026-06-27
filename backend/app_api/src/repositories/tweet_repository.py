@@ -77,6 +77,29 @@ def list_tweets_by_run_id(
             cur.execute(query, (run_id, limit, offset))
             return cur.fetchall()
 
+def list_false_negatives_by_run_id(run_id: str) -> list[dict]:
+    query = """
+    SELECT t.*
+    FROM tweets t
+    WHERE t.run_id = %s
+      AND t.label = true
+      AND EXISTS (
+          SELECT 1 FROM pipeline_step_executions pse
+          WHERE pse.tweet_id = t.id
+      )
+      AND NOT EXISTS (
+          SELECT 1 FROM pipeline_step_executions pse
+          WHERE pse.tweet_id = t.id AND pse.status = 'blocked'
+      )
+    ORDER BY t.created_at ASC
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (run_id,))
+            return cur.fetchall()
+
+
 def count_tweets_by_run_id(run_id: str) -> int:
     query = """
     SELECT COUNT(*) AS count

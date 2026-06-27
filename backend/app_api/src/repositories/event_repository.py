@@ -1,3 +1,4 @@
+import uuid
 from src.database.db import get_connection
 from datetime import datetime
 
@@ -101,6 +102,45 @@ def update_event_active_status(
         conn.commit()
 
     return event
+
+
+def list_active_events_by_run_id(run_id: str) -> list[dict]:
+    query = """
+    SELECT * FROM events
+    WHERE run_id = %s AND is_active = true
+    ORDER BY created_at ASC
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (run_id,))
+            return cur.fetchall()
+
+
+def create_event(run_id: str, lat: float, lon: float, tweet_text: str) -> dict:
+    query = """
+    INSERT INTO events (id, run_id, center_lat, center_lon, is_active, tweet_count, latest_tweet_text, created_at, updated_at)
+    VALUES (%s, %s, %s, %s, true, 1, %s, NOW(), NOW())
+    RETURNING *
+    """
+    event_id = str(uuid.uuid4())
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (event_id, run_id, lat, lon, tweet_text))
+            event = cur.fetchone()
+        conn.commit()
+    return event
+
+
+def increment_event_tweet_count(event_id: str, tweet_text: str) -> None:
+    query = """
+    UPDATE events
+    SET tweet_count = tweet_count + 1, latest_tweet_text = %s, updated_at = NOW()
+    WHERE id = %s
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (tweet_text, event_id))
+        conn.commit()
 
 
 def list_events_by_run_id(
