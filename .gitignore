@@ -1,3 +1,5 @@
-services/photon
-backend/storage
-__pycache__
+services/photon/data/
+backend/storage/
+**/__pycache__/
+**/*.pyc
+
