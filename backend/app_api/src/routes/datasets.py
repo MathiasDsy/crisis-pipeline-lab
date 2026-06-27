@@ -34,7 +34,7 @@ def list_datasets(
 def get_dataset_schema():
     return {
         "format": "csv",
-        "required_columns": ["content"],
+        "required_columns": ["content", "label"],
         "optional_columns": ["id", "created_at", "source"],
         "example": {
             "content": "Smoke visible near Split"
@@ -81,6 +81,9 @@ async def import_dataset(file: UploadFile = File(...)):
         if "content" not in df.columns:
             errors.append("Missing required column: content")
 
+        if "label" not in df.columns:
+            errors.append("Missing required column: label")
+
         file_hash = compute_hash(target_path)
 
         dataset = {
@@ -112,6 +115,25 @@ async def import_dataset(file: UploadFile = File(...)):
             status_code=400,
             detail=f"Could not import dataset: {e}",
         )
+
+@router.get("/{dataset_id}/preview")
+def preview_dataset(dataset_id: str, rows: int = 10):
+    dataset = get_dataset_by_id(dataset_id)
+
+    if dataset is None:
+        raise HTTPException(status_code=404, detail=f"Dataset '{dataset_id}' not found")
+
+    try:
+        df = pd.read_csv(dataset["path"], nrows=rows)
+        return {
+            "dataset_id": dataset_id,
+            "rows": df.to_dict(orient="records"),
+            "columns": list(df.columns),
+            "count": len(df),
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Could not read dataset: {e}")
+
 
 @router.get("/{dataset_id}")
 def get_dataset(dataset_id: str):
