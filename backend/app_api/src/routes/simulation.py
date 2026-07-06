@@ -1,12 +1,12 @@
 from pydantic import BaseModel
-from fastapi import APIRouter, BackgroundTasks, HTTPException
+from fastapi import APIRouter, HTTPException
 
 from src.repositories.run_repository import cancel_run, get_run_by_id
 from src.repositories.tweet_repository import list_tweets_by_run_id
 from src.repositories.event_repository import list_events_by_run_id
 from src.repositories.pipeline_step_repository import list_step_executions_by_run_id
 
-from src.services.simulation_service import request_cancel, run_simulation_background, start_simulation_service
+from src.services.simulation_service import request_cancel, start_simulation_service
 from src.services.metrics_service import compute_run_metrics
 
 
@@ -23,21 +23,12 @@ class StartSimulationRequest(BaseModel):
 
 
 @router.post("/start")
-def start_simulation(request: StartSimulationRequest, background_tasks: BackgroundTasks):
+def start_simulation(request: StartSimulationRequest):
     result = start_simulation_service(
         dataset_id=request.dataset_id,
         pipeline_config_id=request.pipeline_config_id,
         force_rerun=request.force_rerun,
     )
-
-    if result["status"] == "started":
-        internal = result.pop("_internal")
-        background_tasks.add_task(
-            run_simulation_background,
-            run_id=result["run_id"],
-            df=internal["df"],
-            pipeline=internal["pipeline"],
-        )
 
     return result
 

@@ -10,6 +10,7 @@ from src.repositories.run_repository import (
     complete_pipeline_run,
     create_pipeline_run,
     find_completed_simulation_run,
+    get_run_by_id,
 )
 from src.repositories.tweet_repository import create_tweet
 from src.repositories.model_repository import get_model_by_key
@@ -101,17 +102,20 @@ def start_simulation_service(
         status="running",
     )
 
+    # Run every tweet of the dataset through the pipeline, synchronously.
+    run_simulation(run_id=run["id"], df=df, pipeline=pipeline)
+
+    final_run = get_run_by_id(run["id"]) or run
     return {
         "status": "started",
         "cached": False,
         "run_id": run["id"],
-        "run": run,
-        "_internal": {"df": df, "pipeline": pipeline, "run": run},
+        "run": final_run,
     }
 
 
-def run_simulation_background(run_id: str, df: pd.DataFrame, pipeline: dict) -> None:
-    """Exécution du pipeline tweet par tweet. Appelé dans un thread background."""
+def run_simulation(run_id: str, df: pd.DataFrame, pipeline: dict) -> None:
+    """Run the pipeline over every tweet of the dataset, synchronously."""
     cancel_event = threading.Event()
     _cancel_signals[run_id] = cancel_event
 

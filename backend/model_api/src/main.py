@@ -59,19 +59,21 @@ def _load_gliner(model_key: str, local_path: str) -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    try:
-        _load_classifier(model_key="default_classifier", local_path=DEFAULT_RELEVANCE_PATH)
-        print(f"[startup] Classifier loaded from {DEFAULT_RELEVANCE_PATH}")
-    except Exception as e:
-        print(f"[startup] Classifier load failed: {e}")
+    # try:
+    #     _load_classifier(model_key="default_classifier", local_path=DEFAULT_RELEVANCE_PATH)
+    #     print(f"[startup] Classifier loaded from {DEFAULT_RELEVANCE_PATH}")
+    # except Exception as e:
+    #     print(f"[startup] Classifier load failed: {e}")
 
-    try:
-        _load_gliner(model_key="default_gliner", local_path=DEFAULT_GLINER_PATH)
-        print(f"[startup] GLiNER loaded from {DEFAULT_GLINER_PATH}")
-    except Exception as e:
-        print(f"[startup] GLiNER load failed: {e}")
+    # try:
+    #     _load_gliner(model_key="default_gliner", local_path=DEFAULT_GLINER_PATH)
+    #     print(f"[startup] GLiNER loaded from {DEFAULT_GLINER_PATH}")
+    # except Exception as e:
+    #     print(f"[startup] GLiNER load failed: {e}")
 
+    print("[startup] Model API server is ready")
     yield
+    print("[shutdown] Model API server is shutting down")
 
 
 app = FastAPI(title="Crisis Model Server", lifespan=lifespan)
