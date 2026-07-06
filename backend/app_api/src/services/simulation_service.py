@@ -1,4 +1,6 @@
 import threading
+from typing import Iterator
+
 import pandas as pd
 import requests
 from fastapi import HTTPException
@@ -102,34 +104,52 @@ def start_simulation_service(
         status="running",
     )
 
-    # Run every tweet of the dataset through the pipeline, synchronously.
-    run_simulation(run_id=run["id"], df=df, pipeline=pipeline)
-
-    final_run = get_run_by_id(run["id"]) or run
+    # The run is created here but executed by run_simulation_stream via the
+    # dedicated /stream endpoint, so the frontend can follow progress live.
     return {
         "status": "started",
         "cached": False,
         "run_id": run["id"],
-        "run": final_run,
+        "run": run,
     }
 
 
-def run_simulation(run_id: str, df: pd.DataFrame, pipeline: dict) -> None:
-    """Run the pipeline over every tweet of the dataset, synchronously."""
-    cancel_event = threading.Event()
-    _cancel_signals[run_id] = cancel_event
+def run_simulation_stream(run_id: str) -> Iterator[dict]:
+    """
+    Execute the run's pipeline over every tweet of its dataset, yielding a progress
+    event after each tweet. Inputs (dataset + pipeline) are resolved from the run
+    itself, so no state is carried across requests. Errors are yielded as events
+    (not raised) because the HTTP response is already being streamed.
+    """
+    run = get_run_by_id(run_id)
+    if run is None:
+        yield {"event": "error", "message": f"Run '{run_id}' not found", "processed": 0, "total": 0}
+        return
 
-    runner = PipelineRunner(pipeline_config=pipeline["config_json"])
-    created_tweets = 0
+    dataset = get_dataset_by_id(run["dataset_id"])
+    pipeline = get_pipeline_config_by_id(run["pipeline_config_id"])
+    if dataset is None or pipeline is None:
+        complete_pipeline_run(run_id=run_id, status="error")
+        yield {"event": "error", "message": "Dataset or pipeline config not found for this run", "processed": 0, "total": 0}
+        return
+
+    df = pd.read_csv(dataset["path"])
     total = len(df)
 
+    cancel_event = threading.Event()
+    _cancel_signals[run_id] = cancel_event
+    runner = PipelineRunner(pipeline_config=pipeline["config_json"])
+    created_tweets = 0
+
     logger.info(f"Simulation started — {total} rows to process", context="simulation", run_id=run_id, details={"total_rows": total})
+    yield {"event": "start", "processed": 0, "total": total}
 
     try:
         for _, row in df.iterrows():
             if cancel_event.is_set():
                 logger.warning("Simulation cancelled by user", context="simulation", run_id=run_id, details={"tweets_processed": created_tweets})
                 complete_pipeline_run(run_id=run_id, status="cancelled")
+                yield {"event": "cancelled", "processed": created_tweets, "total": total}
                 return
 
             content = str(row["content"]).strip()
@@ -145,13 +165,17 @@ def run_simulation(run_id: str, df: pd.DataFrame, pipeline: dict) -> None:
             runner.run_tweet(tweet_id=tweet["id"], run_id=run_id, text=tweet["content"])
             created_tweets += 1
 
+            yield {"event": "progress", "processed": created_tweets, "total": total}
+
         logger.info(f"Simulation completed — {created_tweets}/{total} tweets processed", context="simulation", run_id=run_id, details={"tweets_processed": created_tweets, "total_rows": total})
         complete_pipeline_run(run_id=run_id, status="completed")
         finalize_run_metrics(run_id)
+        yield {"event": "done", "processed": created_tweets, "total": total}
 
     except Exception as exc:
         logger.error(f"Simulation crashed: {exc}", context="simulation", run_id=run_id, exc=exc, details={"tweets_processed": created_tweets})
         complete_pipeline_run(run_id=run_id, status="error")
+        yield {"event": "error", "message": str(exc), "processed": created_tweets, "total": total}
 
     finally:
         _cancel_signals.pop(run_id, None)

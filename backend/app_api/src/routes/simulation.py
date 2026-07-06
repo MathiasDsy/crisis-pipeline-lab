@@ -1,12 +1,15 @@
+import json
+
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import StreamingResponse
 
 from src.repositories.run_repository import cancel_run, get_run_by_id
 from src.repositories.tweet_repository import list_tweets_by_run_id
 from src.repositories.event_repository import list_events_by_run_id
 from src.repositories.pipeline_step_repository import list_step_executions_by_run_id
 
-from src.services.simulation_service import request_cancel, start_simulation_service
+from src.services.simulation_service import request_cancel, run_simulation_stream, start_simulation_service
 from src.services.metrics_service import compute_run_metrics
 
 
@@ -31,6 +34,20 @@ def start_simulation(request: StartSimulationRequest):
     )
 
     return result
+
+
+@router.post("/{run_id}/stream")
+def stream_simulation(run_id: str):
+    """Execute the run and stream progress as newline-delimited JSON, one event per tweet."""
+    run = get_run_by_id(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"Run '{run_id}' not found")
+
+    def ndjson_events():
+        for event in run_simulation_stream(run_id):
+            yield json.dumps(event) + "\n"
+
+    return StreamingResponse(ndjson_events(), media_type="application/x-ndjson")
 
 
 @router.get("/{run_id}")
