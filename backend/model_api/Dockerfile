@@ -3,7 +3,11 @@ FROM python:3.11-slim
 WORKDIR /app
 
 COPY model_api/requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+# CPU-only torch (no CUDA): the models run on CPU, so we skip the ~2.5GB GPU wheel
+# that otherwise blows the image up to ~14GB and the build to ~20min.
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir torch==2.12.0 --index-url https://download.pytorch.org/whl/cpu \
+ && pip install --no-cache-dir -r requirements.txt
 
 COPY model_api/scripts /app/scripts
 COPY model_api/src /app/src
