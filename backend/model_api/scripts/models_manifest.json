@@ -1,5 +1,5 @@
 {
-  "_comment": "Modèles requis par le pipeline par défaut. download_models.py télécharge chaque repo_id dans backend/storage/models/<target_dir>, puis (ré)écrit metadata.json depuis ce manifest — c'est ce fichier qui fait autorité pour le discovery, pas ce qui se trouve sur le Hub.",
+  "_comment": "Models required by the default pipeline. download_models.py downloads each repo_id into backend/storage/models/<target_dir>, then (re)writes metadata.json from this manifest — this file is the source of truth for discovery, not whatever is on the Hub.",
   "models": [
     {
       "repo_id": "MathiasDsy/relevance_classifier_v1",

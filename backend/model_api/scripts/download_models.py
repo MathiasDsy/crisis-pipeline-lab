@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 """
-Télécharge les modèles requis par le pipeline depuis le HuggingFace Hub.
+Download the models required by the pipeline from the HuggingFace Hub.
 
-Réutilise exactement le mécanisme de la route d'import (`snapshot_download`) et
-(ré)écrit le `metadata.json` de chaque modèle depuis le manifest, car c'est ce
-fichier — pas le contenu du Hub — qui pilote le discovery côté pipeline-api.
+Reuses the exact mechanism of the import route (`snapshot_download`) and
+(re)writes each model's `metadata.json` from the manifest, since that file — not
+the Hub contents — drives discovery in pipeline-api.
 
-Idempotent : un modèle déjà présent (poids détectés sur disque) est ignoré.
+Idempotent: a model already present (weights detected on disk) is skipped.
 
-Configuration via variables d'environnement :
-  MODELS_DIR  répertoire cible          (défaut: backend/storage/models)
-  HF_TOKEN    token HF pour repos privés (optionnel)
+Configuration via environment variables:
+  MODELS_DIR  target directory          (default: backend/storage/models)
+  HF_TOKEN    HF token for private repos (optional)
 
 Usage:
-  python download_models.py [chemin/vers/models_manifest.json]
+  python download_models.py [path/to/models_manifest.json]
 """
 
 import json
@@ -45,16 +45,16 @@ def main() -> int:
     try:
         from huggingface_hub import snapshot_download
     except ImportError:
-        print("ERREUR: huggingface_hub n'est pas installé (pip install huggingface_hub)", file=sys.stderr)
+        print("ERROR: huggingface_hub is not installed (pip install huggingface_hub)", file=sys.stderr)
         return 1
 
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     models = manifest.get("models", [])
     models_dir.mkdir(parents=True, exist_ok=True)
 
-    print(f"Répertoire modèles : {models_dir}")
-    print(f"Manifest           : {manifest_path}")
-    print(f"{len(models)} modèle(s) à provisionner\n")
+    print(f"Models directory : {models_dir}")
+    print(f"Manifest         : {manifest_path}")
+    print(f"{len(models)} model(s) to provision\n")
 
     for entry in models:
         repo_id = entry["repo_id"]
@@ -62,21 +62,21 @@ def main() -> int:
         metadata = entry["metadata"]
 
         if _has_weights(target):
-            print(f"[skip] {entry['target_dir']} — déjà présent")
+            print(f"[skip] {entry['target_dir']} — already present")
         else:
             print(f"[dl]   {entry['target_dir']} <- {repo_id}")
             try:
                 snapshot_download(repo_id=repo_id, local_dir=str(target), token=hf_token)
             except Exception as e:  # noqa: BLE001
-                print(f"ERREUR téléchargement '{repo_id}': {e}", file=sys.stderr)
+                print(f"ERROR downloading '{repo_id}': {e}", file=sys.stderr)
                 return 1
 
-        # metadata.json du manifest fait autorité (le discovery en dépend)
+        # the manifest's metadata.json is the source of truth (discovery depends on it)
         target.mkdir(parents=True, exist_ok=True)
         (target / "metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-        print(f"       metadata.json écrit ({metadata['model_key']})")
+        print(f"       metadata.json written ({metadata['model_key']})")
 
-    print("\nModèles prêts.")
+    print("\nModels ready.")
     return 0
 
 
