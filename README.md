@@ -1,6 +1,6 @@
 # Crisis Pipeline Lab — Early Fire Detection
 
-A **benchmark lab** for crisis-detection pipelines. Instead of building one wildfire-detection pipeline, this project lets you *compare* pipelines, models, and paradigms on annotated tweet datasets — with no dependency on a live Twitter API.
+A **benchmark lab** for crisis-detection pipelines. Instead of building one wildfire-detection pipeline, this project lets you _compare_ pipelines, models, and paradigms on annotated tweet datasets — with no dependency on a live Twitter API.
 
 The central question it answers: **which pipeline detects crisis signals best, with what precision, and where geographically?**
 
@@ -42,13 +42,13 @@ flowchart LR
     MS -->|local files| MODELS[/storage/models/]
 ```
 
-| Service | Port | Role |
-|---------|------|------|
-| `pipeline-api` | 8000 | Main API — business logic, orchestration, DB |
+| Service        | Port | Role                                                  |
+| -------------- | ---- | ----------------------------------------------------- |
+| `pipeline-api` | 8000 | Main API — business logic, orchestration, DB          |
 | `model-server` | 8001 | ML inference (classifier + GLiNER), hot model loading |
-| `postgres` | 5432 | Database |
-| `photon` | 2322 | Self-hosted OSM geocoder (regional OSM dump) |
-| `frontend` | 5173 | Vue 3 UI |
+| `postgres`     | 5432 | Database                                              |
+| `photon`       | 2322 | Self-hosted OSM geocoder (regional OSM dump)          |
+| `frontend`     | 5173 | Vue 3 UI                                              |
 
 **Backend layering** (enforced): thin routes → services (business logic) → repositories (all SQL). Pipeline stages are pluggable components behind a typed contract.
 
@@ -76,45 +76,43 @@ cd crisis-pipeline-lab/early_fire_detection
 ```
 
 ```bash
-# 2a. Linux / macOS
-./init.sh
+# 2. Build + start the whole stack
+docker compose up -d --build
 ```
 
-```powershell
-# 2b. Windows (PowerShell)
-.\init.ps1
-```
+One command brings up the whole stack. Then open **http://localhost:5173**.
 
-One command: it downloads the models + geocoder and brings up the whole stack. Then open **http://localhost:5173**.
+Each service provisions itself on **first boot** — no separate setup script:
 
-What the init script does:
+| Service          | What it does on first boot                                                                                                                                                                                                    |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **model-server** | downloads `relevance_model` + `gliner_multi-v2.1` from HuggingFace into `backend/storage/models/` via its entrypoint (see [`backend/model_api/scripts/models_manifest.json`](backend/model_api/scripts/models_manifest.json)) |
+| **photon**       | downloads the regional Photon dump (`.jsonl.zst`, hosted by GraphHopper) and imports it into `services/photon/data/photon_data/` via its entrypoint — a one-time step of a few minutes                                        |
+| **pipeline-api** | on startup, auto-discovers datasets, models, and pipelines from `backend/storage/`                                                                                                                                            |
 
-| Step | Detail |
-|---|---|
-| **Models** | downloads `relevance_model` + `gliner_multi-v2.1` from HuggingFace into `backend/storage/models/` (see [`scripts/models_manifest.json`](scripts/models_manifest.json)) |
-| **Geocoder** | downloads the regional Photon dump (`.jsonl.zst`, hosted by GraphHopper) and imports it into `services/photon/data/photon_data/` — a one-time step of a few minutes |
-| **Stack** | `docker compose up -d --build` — api, model-server, photon, postgres, frontend |
+Both provisioning steps are **idempotent**: models and the Photon index that are
+already present are skipped, so restarts don't re-download anything. First boot is
+slow (downloads + Photon import); the model-server is unavailable until its models
+are pulled.
 
-The script is **idempotent**: models and the Photon index that are already present
-are skipped, so you can re-run it without re-downloading anything. Optional variables:
+Optional configuration:
 
-- `PHOTON_DUMP_URL` — to change region/version. Default: **Croatia** dump
-  (`photon-dump-croatia-1.0-latest.jsonl.zst`). Photon holds one region at a time
-  (RAM-bound); pick the one that covers your datasets.
-- `HF_TOKEN` — only if one of the model repos is private.
+- `HF_TOKEN` — export it before `docker compose up` only if one of the model repos
+  is private (it's passed through to the model-server).
+- The Photon region is set in [`services/photon/entrypoint.sh`](services/photon/entrypoint.sh)
+  (default: **Croatia**). Photon holds one region at a time (RAM-bound); pick the one
+  that covers your datasets.
 
 > Everything runs in throwaway containers — no host Java, Python, or zstd needed.
 > Docker is the only requirement.
 
 > Models are **not** in git (`backend/storage/` is gitignored). They are pulled from
-> the Hub at setup time — no git LFS, light clone. See [Publishing the models](#publishing-the-models-maintainer).
-
-On startup, `pipeline-api` auto-discovers datasets, models, and pipelines from `backend/storage/`.
+> the Hub on first boot — no git LFS, light clone. See [Publishing the models](#publishing-the-models-maintainer).
 
 ### Publishing the models (maintainer)
 
-The init script downloads from HuggingFace. GLiNER is public; the relevance
-classifier is your fine-tuned model — push it to the Hub **once**:
+The model-server downloads from HuggingFace on first boot. GLiNER is public; the
+relevance classifier is your fine-tuned model — push it to the Hub **once**:
 
 ```bash
 pip install huggingface_hub
@@ -124,7 +122,7 @@ huggingface-cli upload MathiasDsy/relevance_classifier_v1 \
   backend/storage/models/relevance_model .
 ```
 
-The `repo_id` must match the one in [`scripts/models_manifest.json`](scripts/models_manifest.json).
+The `repo_id` must match the one in [`backend/model_api/scripts/models_manifest.json`](backend/model_api/scripts/models_manifest.json).
 The `metadata.json` required by discovery is rewritten from that manifest — no need
 to include it in the HF repo.
 
@@ -277,4 +275,4 @@ See `frontend/CLAUDE_PROJECT_V1.md` for the full design notes and V2 roadmap (in
 
 ## License
 
-TBD.
+MIT
