@@ -66,60 +66,67 @@ flowchart LR
 
 ## Quickstart
 
-**Prérequis :** Docker + Docker Compose v2. Rien d'autre (le download des modèles
-tourne dans un conteneur jetable — pas besoin de Python côté hôte).
+**Prerequisites:** Docker + Docker Compose v2. Nothing else — model download runs
+inside a throwaway container, so no host Python/Java/zstd is required.
 
 ```bash
 # 1. Clone
 git clone https://github.com/MathiasDsy/crisis-pipeline-lab.git
 cd crisis-pipeline-lab/early_fire_detection
+```
 
-# 2. Une seule commande : download des modèles + géocodeur + toute la stack
+```bash
+# 2a. Linux / macOS
 ./init.sh
 ```
 
-Puis ouvre **http://localhost:5173**.
+```powershell
+# 2b. Windows (PowerShell)
+.\init.ps1
+```
 
-Ce que fait `init.sh` :
+One command: it downloads the models + geocoder and brings up the whole stack. Then open **http://localhost:5173**.
 
-| Étape | Détail |
+What the init script does:
+
+| Step | Detail |
 |---|---|
-| **Modèles** | télécharge `relevance_model` + `gliner_multi-v2.1` depuis HuggingFace vers `backend/storage/models/` (voir [`scripts/models_manifest.json`](scripts/models_manifest.json)) |
-| **Géocodeur** | télécharge le dump Photon régional (`.jsonl.zst`, hébergé par GraphHopper), l'importe dans `services/photon/data/photon_data/` — étape unique de quelques minutes |
+| **Models** | downloads `relevance_model` + `gliner_multi-v2.1` from HuggingFace into `backend/storage/models/` (see [`scripts/models_manifest.json`](scripts/models_manifest.json)) |
+| **Geocoder** | downloads the regional Photon dump (`.jsonl.zst`, hosted by GraphHopper) and imports it into `services/photon/data/photon_data/` — a one-time step of a few minutes |
 | **Stack** | `docker compose up -d --build` — api, model-server, photon, postgres, frontend |
 
-Le script est **idempotent** : modèles et index Photon déjà présents sont ignorés,
-tu peux relancer `./init.sh` sans rien re-télécharger. Variables optionnelles :
+The script is **idempotent**: models and the Photon index that are already present
+are skipped, so you can re-run it without re-downloading anything. Optional variables:
 
-- `PHOTON_DUMP_URL` — pour changer de région/version. Défaut : dump **Croatie**
-  (`photon-dump-croatia-1.0-latest.jsonl.zst`). Photon ne charge qu'une région à la
-  fois (RAM-bound) ; choisis celle qui couvre tes datasets.
-- `HF_TOKEN` — seulement si l'un des repos modèles est privé.
+- `PHOTON_DUMP_URL` — to change region/version. Default: **Croatia** dump
+  (`photon-dump-croatia-1.0-latest.jsonl.zst`). Photon holds one region at a time
+  (RAM-bound); pick the one that covers your datasets.
+- `HF_TOKEN` — only if one of the model repos is private.
 
-> Tout tourne dans des conteneurs jetables — pas besoin de Java, Python ni zstd
-> côté hôte. Seul Docker est requis.
+> Everything runs in throwaway containers — no host Java, Python, or zstd needed.
+> Docker is the only requirement.
 
-> Les modèles ne sont **pas** dans git (`backend/storage/` est gitignoré). Ils sont
-> tirés du Hub au setup — pas de git LFS, clone léger. Voir [Publier les modèles](#publier-les-modèles-mainteneur).
+> Models are **not** in git (`backend/storage/` is gitignored). They are pulled from
+> the Hub at setup time — no git LFS, light clone. See [Publishing the models](#publishing-the-models-maintainer).
 
 On startup, `pipeline-api` auto-discovers datasets, models, and pipelines from `backend/storage/`.
 
-### Publier les modèles (mainteneur)
+### Publishing the models (maintainer)
 
-`init.sh` télécharge depuis HuggingFace. GLiNER est public ; le classifier de
-pertinence est ton modèle fine-tuné — pousse-le **une fois** sur le Hub :
+The init script downloads from HuggingFace. GLiNER is public; the relevance
+classifier is your fine-tuned model — push it to the Hub **once**:
 
 ```bash
 pip install huggingface_hub
 huggingface-cli login
-# pousse tout le dossier (poids + config + tokenizer)
+# push the whole folder (weights + config + tokenizer)
 huggingface-cli upload MathiasDsy/relevance_classifier_v1 \
   backend/storage/models/relevance_model .
 ```
 
-Le `repo_id` doit correspondre à celui de [`scripts/models_manifest.json`](scripts/models_manifest.json).
-Le `metadata.json` requis par le discovery est réécrit depuis ce manifest — pas
-besoin de l'inclure dans le repo HF.
+The `repo_id` must match the one in [`scripts/models_manifest.json`](scripts/models_manifest.json).
+The `metadata.json` required by discovery is rewritten from that manifest — no need
+to include it in the HF repo.
 
 ### Adding data & models
 
