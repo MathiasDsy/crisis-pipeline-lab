@@ -3,14 +3,25 @@ services:
     build:
       context: ./backend
       dockerfile: model_api/Dockerfile
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8001
+    command:
+      [
+        "python",
+        "-m",
+        "uvicorn",
+        "src.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8001",
+      ]
     volumes:
       - ./backend/model_api/src:/app/src
+      - ./backend/model_api/scripts:/app/scripts
       - ./backend/shared:/app/shared
       - ./backend/storage:/app/storage
       - ./models_cache:/models_cache
     environment:
-      - PYTHONPATH=/app
+      - PYTHONPATH=/app:/app/src
       - HF_HOME=/models_cache
       - HF_TOKEN=${HF_TOKEN:-}
       - MODELS_DIR=/app/storage/models
