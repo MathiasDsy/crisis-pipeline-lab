@@ -59,7 +59,12 @@ class PipelineRunner:
                 set_path(context, output_path, output.result)
                 context["outputs"][step_id] = output.result
 
-                status = "success" if output.passed else "blocked"
+                if getattr(output, "error", False):
+                    status = "error"
+                elif output.passed:
+                    status = "success"
+                else:
+                    status = "blocked"
                 print(f"[pipeline] tweet={tweet_id} step={step_id} → {status}")
 
                 step_record = {
@@ -77,6 +82,9 @@ class PipelineRunner:
                 trace.append(step_record)
 
                 if status == "blocked":
+                    break
+
+                if status == "error" and self.runtime.get("stop_on_error", True):
                     break
 
             except Exception as e:

@@ -33,6 +33,24 @@ def request_cancel(run_id: str) -> bool:
     return True
 
 
+def ensure_no_active_run() -> None:
+    """
+    Verrou de concurrence : le model-server ne garde qu'un jeu de modèles en mémoire.
+    Lancer un run/benchmark pendant qu'un autre tourne corromprait silencieusement les résultats.
+    """
+    from src.repositories.run_repository import count_running_runs
+    from src.repositories.benchmark_repository import count_running_benchmarks
+
+    if count_running_runs() > 0 or count_running_benchmarks() > 0:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Another run or benchmark is already running. The model-server holds one "
+                "model set at a time — wait for it to finish or cancel it before starting a new one."
+            ),
+        )
+
+
 def start_simulation_service(
     dataset_id: str,
     pipeline_config_id: str,
@@ -60,6 +78,9 @@ def start_simulation_service(
             status_code=400,
             detail={"message": "Pipeline config is not valid", "validation_errors": pipeline.get("validation_errors")},
         )
+
+    # Verrou : ne pas charger de modèles / démarrer si un autre run tourne (model-server mono-état)
+    ensure_no_active_run()
 
     load_models(pipeline)
 
@@ -122,6 +143,7 @@ def run_simulation_background(run_id: str, df: pd.DataFrame, pipeline: dict) -> 
 
         logger.info(f"Simulation completed — {created_tweets}/{total} tweets processed", context="simulation", run_id=run_id, details={"tweets_processed": created_tweets, "total_rows": total})
         complete_pipeline_run(run_id=run_id, status="completed")
+        finalize_run_metrics(run_id)
 
     except Exception as exc:
         logger.error(f"Simulation crashed: {exc}", context="simulation", run_id=run_id, exc=exc, details={"tweets_processed": created_tweets})
@@ -129,6 +151,84 @@ def run_simulation_background(run_id: str, df: pd.DataFrame, pipeline: dict) -> 
 
     finally:
         _cancel_signals.pop(run_id, None)
+
+
+def finalize_run_metrics(run_id: str) -> dict:
+    """Calcule les métriques d'un run et les persiste en BDD. Retourne le dict de métriques."""
+    from src.services.metrics_service import compute_run_metrics
+    from src.repositories.run_metrics_repository import save_run_metrics
+
+    metrics = compute_run_metrics(run_id)
+    # compute_run_metrics peut retourner un dict sans tp/fp si aucun tweet labellisé
+    if "f1" in metrics:
+        save_run_metrics(run_id, metrics)
+    return metrics
+
+
+FIXED_PIPELINE_STRUCTURE = [
+    {
+        "id": "relevance",
+        "component_key": "relevance_classifier",
+        "input": {"text": "tweet.content"},
+        "output": "outputs.relevance",
+        "params": {"threshold": 0.7},
+    },
+    {
+        "id": "location",
+        "component_key": "location_extractor",
+        "input": {"text": "tweet.content"},
+        "output": "outputs.locations",
+        "params": {"threshold": 0.5},
+    },
+    {
+        "id": "geocoding",
+        "component_key": "geocoder",
+        "input": {"locations": "outputs.locations"},
+        "output": "outputs.geocoding",
+    },
+    {
+        "id": "event_matching",
+        "component_key": "event_matcher",
+        "input": {"geocoding": "outputs.geocoding"},
+        "output": "outputs.event",
+        "params": {"radius_km": 5.0},
+    },
+]
+
+
+def build_fixed_pipeline_config(classifier_model_key: str, location_model_key: str) -> dict:
+    """Construit la config pipeline V1 (structure fixe) en injectant les deux modèles."""
+    import copy
+    steps = copy.deepcopy(FIXED_PIPELINE_STRUCTURE)
+    steps[0]["model_key"] = classifier_model_key
+    steps[1]["model_key"] = location_model_key
+    return {
+        "name": f"benchmark:{classifier_model_key}+{location_model_key}",
+        "version": "1.0.0",
+        "runtime": {"stop_on_error": True},
+        "steps": steps,
+    }
+
+
+def ensure_models_loaded(classifier_model_key: str, location_model_key: str) -> None:
+    """Charge le classifier et le modèle de localisation sur le model-server si nécessaire."""
+    data_models = get_models_loaded()
+    classifier_data = data_models.get("classifier") or {}
+    location_data = data_models.get("gliner") or {}
+
+    if classifier_model_key != classifier_data.get("model_key"):
+        model_data = get_model_by_key(classifier_model_key)
+        if model_data is None:
+            raise HTTPException(status_code=404, detail=f"Model '{classifier_model_key}' not found in registry")
+        print(f"[ensure_models_loaded] loading classifier '{classifier_model_key}'")
+        load_classifier_model(classifier_model_key, model_data["local_path"], model_data["metadata_json"]["loader"])
+
+    if location_model_key != location_data.get("model_key"):
+        model_data = get_model_by_key(location_model_key)
+        if model_data is None:
+            raise HTTPException(status_code=404, detail=f"Model '{location_model_key}' not found in registry")
+        print(f"[ensure_models_loaded] loading location model '{location_model_key}'")
+        load_location_model(location_model_key, model_data["local_path"], model_data["metadata_json"]["loader"])
 
 def load_models(pipeline: dict):
     steps = pipeline.get("config_json", None)["steps"]

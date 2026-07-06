@@ -6,6 +6,7 @@ from typing import Any
 class ComponentOutput:
     result: Any
     passed: bool = True
+    error: bool = False  # True = échec technique (timeout, connexion) ≠ résultat "négatif" légitime
 
 
 class BaseComponent:

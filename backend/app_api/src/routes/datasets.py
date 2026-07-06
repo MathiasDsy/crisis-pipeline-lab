@@ -5,6 +5,7 @@ from pathlib import Path
 import shutil
 
 from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi.responses import FileResponse
 from src.services.dataset_discovery import discover_datasets, compute_hash
 from src.repositories.dataset_repository import get_dataset_by_id, upsert_dataset
 from src.repositories.dataset_repository import list_datasets as list_datasets_from_db
@@ -133,6 +134,27 @@ def preview_dataset(dataset_id: str, rows: int = 10):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Could not read dataset: {e}")
+
+
+@router.get("/{dataset_id}/download")
+def download_dataset(dataset_id: str):
+    dataset = get_dataset_by_id(dataset_id)
+
+    if dataset is None:
+        raise HTTPException(status_code=404, detail=f"Dataset '{dataset_id}' not found")
+
+    path = Path(dataset["path"])
+
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="Dataset file missing on disk")
+
+    filename = dataset.get("metadata_json", {}).get("filename") or f"{dataset['name']}.csv"
+
+    return FileResponse(
+        path,
+        media_type="text/csv",
+        filename=filename,
+    )
 
 
 @router.get("/{dataset_id}")

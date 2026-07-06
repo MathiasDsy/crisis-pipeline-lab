@@ -1,8 +1,39 @@
+import os
+import time
 import requests
 from src.components.base import BaseComponent, ComponentOutput
 from src.config import GEOCODE_API_URL
 
-MODEL_SERVER_URL = "http://model-server:8001"
+MODEL_SERVER_URL = os.getenv("MODEL_API_URL", "http://model-server:8001")
+MODEL_SERVER_TIMEOUT = float(os.getenv("MODEL_SERVER_TIMEOUT", "60"))
+MODEL_SERVER_RETRIES = int(os.getenv("MODEL_SERVER_RETRIES", "2"))
+
+
+def _post_model_server(path: str, payload: dict) -> dict:
+    """
+    POST vers le model-server avec timeout généreux + retries sur erreurs transitoires
+    (timeout / connexion). Lève l'exception si tout échoue — l'appelant décide quoi en faire.
+    Un modèle sur CPU peut être lent, surtout à la première inférence après un load (warmup).
+    """
+    last_exc: Exception | None = None
+    for attempt in range(MODEL_SERVER_RETRIES + 1):
+        try:
+            response = requests.post(
+                f"{MODEL_SERVER_URL}{path}",
+                json=payload,
+                timeout=MODEL_SERVER_TIMEOUT,
+            )
+            response.raise_for_status()
+            return response.json()
+        except (requests.Timeout, requests.ConnectionError) as exc:
+            last_exc = exc
+            if attempt < MODEL_SERVER_RETRIES:
+                wait = 1.0 * (attempt + 1)
+                print(f"[model-server] {path} transient error (attempt {attempt + 1}): {exc} — retry in {wait}s")
+                time.sleep(wait)
+                continue
+            raise
+    raise last_exc  # pragma: no cover
 
 
 class RelevanceClassifierComponent(BaseComponent):
@@ -12,33 +43,27 @@ class RelevanceClassifierComponent(BaseComponent):
         print(f"[relevance_classifier] text='{text[:80]}...' " if len(text) > 80 else f"[relevance_classifier] text='{text}'")
 
         try:
-            response = requests.post(
-                f"{MODEL_SERVER_URL}/predict",
-                json={"text": text},
-                timeout=5,
-            )
-            response.raise_for_status()
-            data = response.json()
-
-            is_relevant = data.get("is_relevant", False)
-            print(f"[relevance_classifier] → label={data.get('label')} is_relevant={is_relevant} confidence={data.get('confidence'):.3f}")
-
-            return ComponentOutput(
-                result={
-                    "is_relevant": is_relevant,
-                    "label": data.get("label"),
-                    "confidence": data.get("confidence"),
-                    "model_key": data.get("model_key"),
-                },
-                passed=is_relevant,
-            )
-
+            data = _post_model_server("/predict", {"text": text})
         except Exception as exc:
-            print(f"[relevance_classifier] ERROR: {exc}")
+            print(f"[relevance_classifier] TECHNICAL ERROR: {exc}")
             return ComponentOutput(
-                result={"error": str(exc), "is_relevant": False},
+                result={"error": str(exc), "is_relevant": None},
                 passed=False,
+                error=True,
             )
+
+        is_relevant = data.get("is_relevant", False)
+        print(f"[relevance_classifier] → label={data.get('label')} is_relevant={is_relevant} confidence={data.get('confidence'):.3f}")
+
+        return ComponentOutput(
+            result={
+                "is_relevant": is_relevant,
+                "label": data.get("label"),
+                "confidence": data.get("confidence"),
+                "model_key": data.get("model_key"),
+            },
+            passed=is_relevant,
+        )
 
 
 class LocationExtractorComponent(BaseComponent):
@@ -50,34 +75,31 @@ class LocationExtractorComponent(BaseComponent):
         print(f"[location_extractor] text='{text[:80]}...' threshold={threshold}" if len(text) > 80 else f"[location_extractor] text='{text}' threshold={threshold}")
 
         try:
-            response = requests.post(
-                f"{MODEL_SERVER_URL}/extract-locations",
-                json={"text": text, "labels": labels, "threshold": threshold},
-                timeout=5,
+            data = _post_model_server(
+                "/extract-locations",
+                {"text": text, "labels": labels, "threshold": threshold},
             )
-            response.raise_for_status()
-            data = response.json()
-
-            entities = data.get("entities", [])
-            location_names = [e["text"] for e in entities]
-
-            print(f"[location_extractor] → {len(location_names)} location(s) found: {location_names}")
-
-            return ComponentOutput(
-                result={
-                    "locations": location_names,
-                    "entities": entities,
-                    "model_key": data.get("model_key"),
-                },
-                passed=len(location_names) > 0,
-            )
-
         except Exception as exc:
-            print(f"[location_extractor] ERROR: {exc}")
+            print(f"[location_extractor] TECHNICAL ERROR: {exc}")
             return ComponentOutput(
                 result={"error": str(exc), "locations": [], "entities": []},
                 passed=False,
+                error=True,
             )
+
+        entities = data.get("entities", [])
+        location_names = [e["text"] for e in entities]
+
+        print(f"[location_extractor] → {len(location_names)} location(s) found: {location_names}")
+
+        return ComponentOutput(
+            result={
+                "locations": location_names,
+                "entities": entities,
+                "model_key": data.get("model_key"),
+            },
+            passed=len(location_names) > 0,
+        )
 
 
 class GeocoderComponent(BaseComponent):
@@ -101,31 +123,32 @@ class GeocoderComponent(BaseComponent):
             response = requests.get(
                 GEOCODE_API_URL,
                 params={"q": location_name, "limit": 1},
-                timeout=5,
+                timeout=float(os.getenv("GEOCODE_TIMEOUT", "15")),
             )
             response.raise_for_status()
             features = response.json().get("features", [])
-
-            if not features:
-                print(f"[geocoder] → no result from Photon for '{location_name}'")
-                return ComponentOutput(result={"lat": None, "lon": None}, passed=False)
-
-            feature = features[0]
-            lon, lat = feature["geometry"]["coordinates"]
-            display_name = feature.get("properties", {}).get("name")
-            print(f"[geocoder] → lat={lat} lon={lon} name='{display_name}'")
-
-            return ComponentOutput(
-                result={"lat": lat, "lon": lon, "display_name": display_name},
-                passed=True,
-            )
-
         except Exception as exc:
-            print(f"[geocoder] ERROR: {exc}")
+            # Échec technique (Photon down / timeout) ≠ "pas de résultat"
+            print(f"[geocoder] TECHNICAL ERROR: {exc}")
             return ComponentOutput(
                 result={"error": str(exc), "lat": None, "lon": None},
                 passed=False,
+                error=True,
             )
+
+        if not features:
+            print(f"[geocoder] → no result from Photon for '{location_name}'")
+            return ComponentOutput(result={"lat": None, "lon": None}, passed=False)
+
+        feature = features[0]
+        lon, lat = feature["geometry"]["coordinates"]
+        display_name = feature.get("properties", {}).get("name")
+        print(f"[geocoder] → lat={lat} lon={lon} name='{display_name}'")
+
+        return ComponentOutput(
+            result={"lat": lat, "lon": lon, "display_name": display_name},
+            passed=True,
+        )
 
 
 class EventMatcherComponent(BaseComponent):

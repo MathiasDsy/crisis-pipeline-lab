@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from src.routes.admin import router as admin_router
+from src.routes.benchmarks import router as benchmarks_router
 from src.routes.datasets import router as datasets_router
 from src.routes.events import router as events_router
 from src.routes.models import router as models_router
@@ -88,6 +89,7 @@ app.add_middleware(
 )
 
 app.include_router(admin_router)
+app.include_router(benchmarks_router)
 app.include_router(datasets_router)
 app.include_router(events_router)
 app.include_router(models_router)

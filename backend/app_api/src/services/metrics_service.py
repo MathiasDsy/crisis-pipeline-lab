@@ -25,6 +25,7 @@ def compute_run_metrics(run_id: str) -> dict:
 
     tp = fp = fn = tn = 0
     unlabeled = 0
+    errored = 0
     results = []
 
     for tweet in tweets:
@@ -34,6 +35,13 @@ def compute_run_metrics(run_id: str) -> dict:
             continue
 
         tweet_steps = steps_by_tweet.get(str(tweet["id"]), [])
+
+        # Un tweet dont une étape a échoué techniquement (timeout, model-server down)
+        # n'a pas de prédiction fiable → on l'exclut du scoring au lieu de le compter comme négatif.
+        if any(step["status"] == "error" for step in tweet_steps):
+            errored += 1
+            continue
+
         predicted = _is_predicted_positive(tweet_steps)
 
         if label and predicted:
@@ -51,15 +59,18 @@ def compute_run_metrics(run_id: str) -> dict:
             "predicted": predicted,
         })
 
+    scored = tp + fp + fn + tn
     precision = tp / (tp + fp) if (tp + fp) > 0 else 0.0
     recall = tp / (tp + fn) if (tp + fn) > 0 else 0.0
     f1 = (2 * precision * recall / (precision + recall)) if (precision + recall) > 0 else 0.0
-    accuracy = (tp + tn) / len(labeled) if labeled else 0.0
+    accuracy = (tp + tn) / scored if scored else 0.0
 
     return {
         "run_id": run_id,
         "total_tweets": total,
         "labeled_tweets": len(labeled),
+        "scored_tweets": scored,
+        "errored_tweets": errored,
         "unlabeled_tweets": unlabeled,
         "tp": tp,
         "fp": fp,

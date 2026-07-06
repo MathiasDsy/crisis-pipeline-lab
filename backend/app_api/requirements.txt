@@ -2,6 +2,8 @@ requests
 pydantic
 python-dotenv
 pandas
+huggingface_hub
+python-multipart
 
 fastapi
 uvicorn[standard]

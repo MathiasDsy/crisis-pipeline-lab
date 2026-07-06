@@ -33,6 +33,14 @@ def list_runs(
             cur.execute(query, params)
             return cur.fetchall()
 
+def count_running_runs() -> int:
+    query = "SELECT COUNT(*) AS count FROM pipeline_runs WHERE status = 'running'"
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            return cur.fetchone()["count"]
+
+
 def find_completed_simulation_run(
     dataset_id: str,
     pipeline_config_id: str,
@@ -56,10 +64,11 @@ def find_completed_simulation_run(
 
 def create_pipeline_run(
     dataset_id: str | None,
-    pipeline_config_id: str,
+    pipeline_config_id: str | None,
     mode: str,
     status: str = "running",
     model_snapshot: dict | None = None,
+    benchmark_id: str | None = None,
 ) -> dict[str, Any]:
 
     run_id = str(uuid.uuid4())
@@ -70,6 +79,7 @@ def create_pipeline_run(
         id,
         pipeline_config_id,
         dataset_id,
+        benchmark_id,
         mode,
         status,
         started_at,
@@ -77,6 +87,7 @@ def create_pipeline_run(
         model_snapshot_json
     )
     VALUES (
+        %s,
         %s,
         %s,
         %s,
@@ -97,6 +108,7 @@ def create_pipeline_run(
                     run_id,
                     pipeline_config_id,
                     dataset_id,
+                    benchmark_id,
                     mode,
                     status,
                     started_at,
@@ -109,6 +121,18 @@ def create_pipeline_run(
         conn.commit()
 
     return run
+
+
+def list_runs_by_benchmark_id(benchmark_id: str) -> list[dict[str, Any]]:
+    query = """
+    SELECT * FROM pipeline_runs
+    WHERE benchmark_id = %s
+    ORDER BY started_at ASC
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (benchmark_id,))
+            return cur.fetchall()
 
 def complete_pipeline_run(run_id: str, status: str = "completed") -> dict[str, Any]:
     query = """
