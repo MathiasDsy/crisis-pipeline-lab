@@ -1,0 +1,41 @@
+name: Fire Detection V1
+version: "1.0.0"
+description: Early wildfire detection pipeline
+
+runtime:
+  stop_on_error: true
+
+steps:
+  - id: relevance
+    name: Relevance Classification
+    component_key: relevance_classifier
+    model_key: relevance_xlmroberta_finetuned_v1
+    input:
+      text: tweet.content
+    output: outputs.relevance
+    params:
+      threshold: 0.7
+
+  - id: location
+    name: Location Extraction
+    component_key: location_extractor
+    model_key: gliner_multi_v2_1
+    input:
+      text: tweet.content
+    output: outputs.locations
+    params:
+      threshold: 0.5
+
+  - id: geocoding
+    name: Geocoding
+    component_key: geocoder
+    input:
+      locations: outputs.locations
+    output: outputs.geocoding
+
+  - id: event_matching
+    name: Event Matching
+    component_key: event_matcher
+    input:
+      geocoding: outputs.geocoding
+    output: outputs.event

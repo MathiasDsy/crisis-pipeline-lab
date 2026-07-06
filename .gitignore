@@ -1,5 +1,5 @@
 services/photon/data/
-backend/storage/
+backend/storage/models
 **/__pycache__/
 **/*.pyc
 
