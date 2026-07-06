@@ -1,0 +1,66 @@
+{
+  "_comment": "Modèles requis par le pipeline par défaut. download_models.py télécharge chaque repo_id dans backend/storage/models/<target_dir>, puis (ré)écrit metadata.json depuis ce manifest — c'est ce fichier qui fait autorité pour le discovery, pas ce qui se trouve sur le Hub.",
+  "models": [
+    {
+      "repo_id": "MathiasDsy/relevance_classifier_v1",
+      "target_dir": "relevance_model",
+      "metadata": {
+        "model_key": "relevance_xlmroberta_finetuned_v1",
+        "name": "Relevance XLM-RoBERTa Finetuned V1",
+        "description": "Fine-tuned XLM-RoBERTa classifier used to determine whether a tweet is a potential early fire signal.",
+        "model_type": "transformer_classifier",
+        "version": "1.0.0",
+        "entrypoint": ".",
+        "loader": "transformers_sequence_classification_local",
+        "framework": "torch",
+        "compatible_components": ["relevance_classifier"],
+        "task": "binary_classification",
+        "labels": ["not_relevant", "early_signal"],
+        "files": {
+          "weights": "pytorch_model.bin",
+          "config": "config.json",
+          "tokenizer": "tokenizer.json",
+          "tokenizer_config": "tokenizer_config.json",
+          "special_tokens_map": "special_tokens_map.json"
+        },
+        "base_model": {
+          "name": "xlm-roberta-base",
+          "family": "xlm-roberta"
+        },
+        "runtime": {
+          "device": "cpu",
+          "batch_size": 1,
+          "max_length": 256
+        },
+        "thresholds": {
+          "early_signal": 0.5
+        },
+        "metadata_version": "1.0.0"
+      }
+    },
+    {
+      "repo_id": "urchade/gliner_multi-v2.1",
+      "target_dir": "gliner_multi-v2.1",
+      "metadata": {
+        "model_key": "gliner_multi_v2_1",
+        "name": "GLiNER Fire Locations V1",
+        "model_type": "gliner",
+        "loader": "gliner_pretrained_local",
+        "framework": "torch",
+        "version": "1.0.0",
+        "entrypoint": ".",
+        "compatible_components": ["location_extractor"],
+        "files": {
+          "weights": "pytorch_model.bin",
+          "config": "gliner_config.json",
+          "metadata": "metadata.json",
+          "tokenizer_config": "tokenizer_config.json",
+          "tokenizer": "tokenizer.json"
+        },
+        "runtime": {
+          "device": "cpu"
+        }
+      }
+    }
+  ]
+}
