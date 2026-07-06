@@ -3,7 +3,6 @@ services:
     build:
       context: ./backend
       dockerfile: model_api/Dockerfile
-    container_name: crisis-model-server
     command: uvicorn src.main:app --host 0.0.0.0 --port 8001
     volumes:
       - ./backend/model_api/src:/app/src
@@ -25,7 +24,6 @@ services:
     build:
       context: ./backend
       dockerfile: app_api/Dockerfile
-    container_name: crisis-pipeline-api
     command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
@@ -48,7 +46,6 @@ services:
     build:
       context: ./services/photon
       dockerfile: Dockerfile
-    container_name: photon-croatia
     ports:
       - "2322:2322"
     volumes:
@@ -57,7 +54,6 @@ services:
 
   postgres:
     image: postgres:16-alpine
-    container_name: crisis-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: crisis
@@ -73,7 +69,6 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.dev
-    container_name: crisis-frontend
     ports:
       - "5173:5173"
     volumes:
