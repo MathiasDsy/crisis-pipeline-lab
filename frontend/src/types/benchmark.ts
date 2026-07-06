@@ -1,93 +1,48 @@
-export type BenchmarkStatus = "pending" | "running" | "completed" | "failed";
-export type BenchmarkRunType = "evaluation" | "training";
+export type BenchmarkStatus = 'running' | 'completed' | 'cancelled' | 'error'
 
-export interface Dataset {
-  id: string;
-  name: string;
-  type: "noise_only" | "candidates_only" | "mixed" | "custom";
-  fileName: string;
-  tweetCount: number;
-  labelsSummary: Record<string, number>;
-  createdAt: string;
+export interface Benchmark {
+  id:                    string
+  name:                  string
+  dataset_id:            string
+  classifier_model_keys: string[]
+  location_model_keys:   string[]
+  total_runs:            number
+  completed_runs:        number
+  status:                BenchmarkStatus
+  created_at:            string
+  finished_at:           string | null
 }
 
-export interface BenchmarkStep {
-  id: string;
-  name: string;
-  type: "noise_filter" | "location_extraction" | "source_judge" | "event_clustering" | "custom";
-  model?: string;
-  provider?: "huggingface" | "local" | "openai" | "custom";
-  metrics: string[];
+export interface BenchmarkStartResponse {
+  status:       'started'
+  benchmark_id: string
+  total_runs:   number
+  benchmark:    Benchmark
 }
 
-export interface BenchmarkConfig {
-  id: string;
-  name: string;
-  description: string;
-  yamlFile: string;
-  steps: BenchmarkStep[];
-  createdAt: string;
+export interface LeaderboardEntry {
+  run_id:  string
+  status:  string
+  model_snapshot_json: {
+    classifier_model_key: string
+    location_model_key:   string
+  }
+  tp: number
+  fp: number
+  fn: number
+  tn: number
+  precision:      number
+  recall:         number
+  f1:             number
+  accuracy:       number
+  total_tweets:   number
+  labeled_tweets: number
 }
 
-export interface BenchmarkBatch {
-  id: string;
-  name: string;
-  runType: BenchmarkRunType;
-  datasetIds: string[];
-  configIds: string[];
-  status: BenchmarkStatus;
-  startedAt?: string;
-  completedAt?: string;
-}
-
-export interface StepScore {
-  stepId: string;
-  stepName: string;
-  score: number;
-  precision?: number;
-  recall?: number;
-  f1?: number;
-  failedCount: number;
-}
-
-export interface BenchmarkRun {
-  id: string;
-  batchId: string;
-  datasetId: string;
-  configId: string;
-  status: BenchmarkStatus;
-  globalScore: number;
-  stepScores: StepScore[];
-  totalItems: number;
-  passedItems: number;
-  failedItems: number;
-  startedAt: string;
-  completedAt?: string;
-}
-
-export interface BenchmarkItemResult {
-  id: string;
-  runId: string;
-  tweetId: string;
-  tweet: string;
-  datasetId: string;
-  configId: string;
-  passed: boolean;
-  expected: string;
-  predicted: string;
-  confidence?: number;
-  stepFailed?: string;
-  errorType?: string;
-}
-
-export interface HardCase {
-  tweetId: string;
-  tweet: string;
-  datasetId: string;
-  totalRuns: number;
-  passedRuns: number;
-  failedRuns: number;
-  passRate: number;
-  failedConfigs: string[];
-  mainErrorType?: string;
+export interface LeaderboardResponse {
+  benchmark_id:   string
+  status:         BenchmarkStatus
+  total_runs:     number
+  completed_runs: number
+  leaderboard:    LeaderboardEntry[]
 }

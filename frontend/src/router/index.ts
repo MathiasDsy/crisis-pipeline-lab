@@ -1,25 +1,32 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import SimulationPage from '../views/SimulationPage.vue'
-import ResourcesView from '../views/ResourcesView.vue'
-import BenchmarkView from '../views/BenchmarkView.vue'
 
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
     {
-      path: '/simulation',
+      path: '/',
       name: 'simulation',
-      component: SimulationPage,
-    },
-    {
-      path: '/resources',
-      name: 'resources',
-      component: ResourcesView,
+      component: () => import('@/pages/SimulationPage.vue'),
     },
     {
       path: '/benchmark',
       name: 'benchmark',
-      component: BenchmarkView,
+      component: () => import('@/pages/BenchmarkPage.vue'),
+    },
+    {
+      path: '/datasets',
+      name: 'datasets',
+      component: () => import('@/pages/DatasetsPage.vue'),
+    },
+    {
+      path: '/pipelines',
+      name: 'pipelines',
+      component: () => import('@/pages/PipelinesPage.vue'),
+    },
+    {
+      path: '/models',
+      name: 'models',
+      component: () => import('@/pages/ModelsPage.vue'),
     },
   ],
 })

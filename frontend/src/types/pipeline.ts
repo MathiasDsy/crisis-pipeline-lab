@@ -1,43 +1,13 @@
-export type StepStatus =
-  | "success"
-  | "failed"
-  | "warning"
-  
-  export type AnnotationLabel =
-  | "correct"
-  | "incorrect"
-  | "uncertain"
-  
-export type RunStatus = "passed" | "blocked" | "warning"
-export type TabKey = "recent" | RunStatus
-
-export interface StepAnnotation {
+export interface PipelineConfig {
   id: string
-  label: AnnotationLabel
-  annotatedBy: string
-  notes?: string | null
-  annotatedAt: string
-}
-
-export type PipelineStep = {
-  id: string
-  // UUID postgres de la step
-  stepDbId: string
   name: string
-  status: StepStatus
+  version: string
   description: string
-  duration: number
-  output: Record<string, unknown>
-  annotation?: StepAnnotation | null
-}
-
-export type PipelineRun = {
-  id: string
-  text: string
-  status: RunStatus
-  config: string
-  time: string
-  createdAt: string
-  stoppedAt: string | null
-  trace: PipelineStep[]
+  config_json: Record<string, unknown>
+  required_models_json: string[]
+  required_components_json: string[]
+  original_filename: string
+  is_valid: boolean
+  validation_errors: string[]
+  created_at: string
 }
