@@ -60,6 +60,30 @@ def _looks_complete(target: Path) -> bool:
     return has_weights and has_tokenizer and has_config
 
 
+def _ensure_tokenizer(model_dir: Path, hf_token: str | None) -> None:
+    """
+    GLiNER-style models ship only weights + `gliner_config.json`; their tokenizer
+    lives in the base model repo (`config.model_name`). GLiNER's `_load_tokenizer`
+    reads the tokenizer from the model dir when a `tokenizer_config.json` is present,
+    otherwise it falls back to the base name — which fails under `local_files_only`.
+    So, for offline loading, fetch the base tokenizer once and save it into the dir.
+    """
+    gliner_config = model_dir / "gliner_config.json"
+    if not gliner_config.is_file():
+        return  # not a gliner-style model — nothing to do
+    if (model_dir / "tokenizer_config.json").is_file():
+        return  # tokenizer already present
+
+    base_model = json.loads(gliner_config.read_text(encoding="utf-8")).get("model_name")
+    if not base_model:
+        return
+
+    print(f"       fetching tokenizer from base model '{base_model}'")
+    from transformers import AutoTokenizer
+
+    AutoTokenizer.from_pretrained(base_model, token=hf_token).save_pretrained(str(model_dir))
+
+
 def _download_into_place(snapshot_download, repo_id: str, target: Path, hf_token: str | None) -> None:
     """
     Download the full repo into a sibling temp dir, mark it complete, then atomically
@@ -73,6 +97,8 @@ def _download_into_place(snapshot_download, repo_id: str, target: Path, hf_token
         snapshot_download(repo_id=repo_id, local_dir=str(tmp_dir), token=hf_token)
         # snapshot_download leaves an internal .cache folder in local_dir; drop it
         shutil.rmtree(tmp_dir / ".cache", ignore_errors=True)
+        # GLiNER repos carry no tokenizer — pull it from the base model if needed
+        _ensure_tokenizer(tmp_dir, hf_token)
         # marker is the LAST thing written before the swap → proves the dl finished
         (tmp_dir / COMPLETE_MARKER).write_text(json.dumps({"repo_id": repo_id}), encoding="utf-8")
 
@@ -122,7 +148,7 @@ def main() -> int:
         target = models_dir / entry["target_dir"]
         metadata = entry["metadata"]
 
-        if (target / COMPLETE_MARKER).exists():
+        if (target / COMPLETE_MARKER).exists() and _looks_complete(target):
             print(f"[skip] {entry['target_dir']} — already complete")
         elif _looks_complete(target):
             print(f"[adopt] {entry['target_dir']} — existing download, marking complete")
