@@ -72,6 +72,23 @@ CREATE TABLE IF NOT EXISTS events (
 );
 
 -- =====================================================
+-- BENCHMARKS
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS benchmarks (
+    id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    name                  TEXT,
+    dataset_id            UUID NULL REFERENCES datasets(id) ON DELETE SET NULL,
+    classifier_model_keys JSONB NOT NULL DEFAULT '[]'::jsonb,
+    location_model_keys   JSONB NOT NULL DEFAULT '[]'::jsonb,
+    total_runs            INTEGER NOT NULL DEFAULT 0,
+    completed_runs        INTEGER NOT NULL DEFAULT 0,
+    status                TEXT NOT NULL DEFAULT 'running',
+    created_at            TIMESTAMP NOT NULL DEFAULT NOW(),
+    finished_at           TIMESTAMP NULL
+);
+
+-- =====================================================
 -- PIPELINE RUNS
 -- =====================================================
 
@@ -79,12 +96,15 @@ CREATE TABLE IF NOT EXISTS pipeline_runs (
     id                   UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     pipeline_config_id   UUID NULL REFERENCES pipeline_configs(id) ON DELETE SET NULL,
     dataset_id           UUID NULL REFERENCES datasets(id) ON DELETE SET NULL,
+    benchmark_id         UUID NULL REFERENCES benchmarks(id) ON DELETE CASCADE,
     mode                 TEXT NOT NULL DEFAULT 'simulation',
     status               TEXT NOT NULL DEFAULT 'running',
     started_at           TIMESTAMP NOT NULL DEFAULT NOW(),
     finished_at          TIMESTAMP NULL,
     model_snapshot_json  JSONB NOT NULL DEFAULT '{}'::jsonb
 );
+
+CREATE INDEX IF NOT EXISTS idx_pipeline_runs_benchmark_id ON pipeline_runs(benchmark_id);
 
 -- =====================================================
 -- TWEETS
@@ -119,6 +139,25 @@ CREATE TABLE IF NOT EXISTS pipeline_step_executions (
 
 CREATE INDEX IF NOT EXISTS idx_step_exec_run_id   ON pipeline_step_executions(run_id);
 CREATE INDEX IF NOT EXISTS idx_step_exec_tweet_id ON pipeline_step_executions(tweet_id);
+
+-- =====================================================
+-- RUN METRICS
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS run_metrics (
+    run_id         UUID PRIMARY KEY REFERENCES pipeline_runs(id) ON DELETE CASCADE,
+    total_tweets   INTEGER NOT NULL DEFAULT 0,
+    labeled_tweets INTEGER NOT NULL DEFAULT 0,
+    tp             INTEGER NOT NULL DEFAULT 0,
+    fp             INTEGER NOT NULL DEFAULT 0,
+    fn             INTEGER NOT NULL DEFAULT 0,
+    tn             INTEGER NOT NULL DEFAULT 0,
+    precision      DOUBLE PRECISION NOT NULL DEFAULT 0,
+    recall         DOUBLE PRECISION NOT NULL DEFAULT 0,
+    f1             DOUBLE PRECISION NOT NULL DEFAULT 0,
+    accuracy       DOUBLE PRECISION NOT NULL DEFAULT 0,
+    computed_at    TIMESTAMP NOT NULL DEFAULT NOW()
+);
 
 -- =====================================================
 -- RUN LOGS

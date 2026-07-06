@@ -21,16 +21,6 @@ services:
       - "8001:8001"
     restart: unless-stopped
 
-  broker_simulator:
-    build:
-      context: ./tweet_worker
-      dockerfile: Dockerfile
-    environment:
-      API_BASE_URL: http://pipeline-api:8000
-      INTERVAL_SECONDS: 5
-    depends_on:
-      - pipeline-api
-
   pipeline-api:
     build:
       context: ./backend
@@ -55,7 +45,7 @@ services:
       - model-server
       - photon
     restart: unless-stopped
-  
+
   photon:
     build:
       context: ./services/photon
@@ -94,10 +84,10 @@ services:
     environment:
       - VITE_API_URL=http://localhost:8000
       - CHOKIDAR_USEPOLLING=true
+      - CHOKIDAR_INTERVAL=300
+      - WATCHPACK_POLLING=true
     command: npm run dev -- --host 0.0.0.0
-  
     restart: unless-stopped
-
 
 volumes:
   crisis_postgres_data:
