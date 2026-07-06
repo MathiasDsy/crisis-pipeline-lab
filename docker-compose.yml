@@ -13,6 +13,8 @@ services:
     environment:
       - PYTHONPATH=/app
       - HF_HOME=/models_cache
+      - HF_TOKEN=${HF_TOKEN:-}
+      - MODELS_DIR=/app/storage/models
       - RELEVANCE_MODEL_PATH=/app/storage/models/relevance_model
       - GLINER_MODEL_PATH=/app/storage/models/gliner_multi-v2.1
     ports:
