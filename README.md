@@ -23,7 +23,7 @@ relevance_classifier → location_extractor → geocoder → event_matcher
 
 On top of that:
 
-- **Async simulations** with live status polling and cancellation
+- **Synchronous simulations** with cancellation (live progress streaming lands in v2)
 - **Matrix benchmarking** — run `classifiers × location models` in one click, ranked by F1
 - **Metrics** — precision / recall / F1 / accuracy, persisted per run
 - **Qualitative inspection** — per-tweet traces, hard cases (false negatives), "where did it die?" breakdown
@@ -76,11 +76,19 @@ cd crisis-pipeline-lab/early_fire_detection
 ```
 
 ```bash
-# 2. Build + start the whole stack
+# 2a. Backend dev stack — postgres + model-server + pipeline-api only
 docker compose up -d --build
+
+# 2b. Full stack — everything, including the frontend and Photon geocoder
+GEOCODING_ENABLED=true docker compose --profile full up -d --build
 ```
 
-One command brings up the whole stack. Then open **http://localhost:5173**.
+The stack is split with Compose **profiles**: the default `docker compose up`
+brings up only the three backend services (fast, no Photon) for API work and
+tests. The `full` profile adds the **frontend** (open **http://localhost:5173**)
+and **Photon**. Services wait on each other's **healthchecks** — `pipeline-api`
+starts only once postgres and model-server are actually healthy, not merely
+started.
 
 Each service provisions itself on **first boot** — no separate setup script:
 
@@ -97,6 +105,10 @@ are pulled.
 
 Optional configuration:
 
+- `GEOCODING_ENABLED` — toggles the geocoder stage. Defaults to `true` in code but
+  `false` in the dev stack (Photon isn't started there), so the geocoder is skipped
+  cleanly (`blocked`, not `error`) instead of failing on an unreachable Photon. Set
+  `GEOCODING_ENABLED=true` with `--profile full` to geocode against Photon.
 - `HF_TOKEN` — export it before `docker compose up` only if one of the model repos
   is private (it's passed through to the model-server).
 - The Photon region is set in [`services/photon/entrypoint.sh`](services/photon/entrypoint.sh)
@@ -152,13 +164,14 @@ curl -X POST http://localhost:8000/models/import/huggingface \
 ## Running a simulation
 
 ```bash
-# Starts asynchronously, returns a run_id immediately
+# Runs synchronously: loads the models, executes the whole dataset, then returns
+# the finished run with its status. Live progress streaming is deferred to v2.
 curl -X POST http://localhost:8000/simulation/start \
   -H "Content-Type: application/json" \
   -d '{"dataset_id": "<uuid>", "pipeline_config_id": "<uuid>"}'
 
-# Poll status until it's no longer "running"
-curl http://localhost:8000/simulation/<run_id>
+# Cancel an in-flight run (resolve its id via /runs?status=running)
+curl -X POST http://localhost:8000/simulation/<run_id>/cancel
 
 # Metrics
 curl http://localhost:8000/simulation/<run_id>/metrics

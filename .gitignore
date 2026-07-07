@@ -3,3 +3,6 @@ backend/storage/models
 **/__pycache__/
 **/*.pyc
 
+# Local dev compose (client stack is docker-compose.yml)
+docker-compose.dev.yml
+

@@ -1,8 +1,15 @@
+import os
+
 import requests
 from fastapi import HTTPException
 from pydantic import BaseModel
 
-#TODO refactor as a class ? 
+# Loading a model (torch weights / GLiNER) is slow on CPU but must never hang
+# forever: a frozen model-server would otherwise block pipeline-api indefinitely
+# while holding the concurrency lock. Bounded, generous, overridable.
+LOAD_MODEL_TIMEOUT = float(os.getenv("LOAD_MODEL_TIMEOUT", "600"))
+
+#TODO refactor as a class ?
 class LoadModelRequest(BaseModel):
     model_key: str
     local_path: str
@@ -34,6 +41,7 @@ def load_classifier_model(model_key, local_path, model_loader):
         response = requests.post(
             "http://model-server:8001/models/load/classifier",
             json=req.dict(),
+            timeout=LOAD_MODEL_TIMEOUT,
         )
         response.raise_for_status()
         data = response.json()
@@ -55,6 +63,7 @@ def load_location_model(model_key, local_path, model_loader):
         response = requests.post(
             "http://model-server:8001/models/load/location_extractor",
             json=req.dict(),
+            timeout=LOAD_MODEL_TIMEOUT,
         )
         response.raise_for_status()
         data = response.json()

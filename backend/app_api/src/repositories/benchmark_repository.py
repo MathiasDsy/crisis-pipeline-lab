@@ -66,6 +66,28 @@ def count_running_benchmarks() -> int:
             return cur.fetchone()["count"]
 
 
+def fail_orphaned_benchmarks() -> int:
+    """
+    Mark every benchmark still flagged 'running' as 'error'.
+
+    Like runs, benchmarks execute in-process, so a 'running' benchmark at startup
+    is a leftover from a restart/crash. Reconciling it releases the concurrency
+    lock shared with simulations. Returns the count.
+    """
+    query = """
+    UPDATE benchmarks
+    SET status = 'error',
+        finished_at = NOW()
+    WHERE status = 'running'
+    """
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            affected = cur.rowcount
+        conn.commit()
+    return affected
+
+
 def increment_completed_runs(benchmark_id: str) -> None:
     query = """
     UPDATE benchmarks

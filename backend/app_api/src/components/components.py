@@ -2,7 +2,7 @@ import os
 import time
 import requests
 from src.components.base import BaseComponent, ComponentOutput
-from src.config import GEOCODE_API_URL
+from src.config import GEOCODE_API_URL, GEOCODING_ENABLED
 
 MODEL_SERVER_URL = os.getenv("MODEL_API_URL", "http://model-server:8001")
 MODEL_SERVER_TIMEOUT = float(os.getenv("MODEL_SERVER_TIMEOUT", "60"))
@@ -104,6 +104,15 @@ class LocationExtractorComponent(BaseComponent):
 
 class GeocoderComponent(BaseComponent):
     def run(self, inputs: dict, params: dict, context: dict) -> ComponentOutput:
+        # Geocoding disabled (e.g. Photon not in the running stack): skip cleanly
+        # instead of failing. Treated as "no coordinates", not as an error.
+        if not GEOCODING_ENABLED:
+            print("[geocoder] geocoding disabled (GEOCODING_ENABLED=false) → skipping")
+            return ComponentOutput(
+                result={"lat": None, "lon": None, "skipped": True},
+                passed=False,
+            )
+
         locations = inputs.get("locations", [])
 
         # Si le step précédent a passé son output complet au lieu de la liste

@@ -212,6 +212,32 @@ def count_run_errors(run_id: str) -> int:
             cur.execute(query, (run_id,))
             return cur.fetchone()["count"]
         
+def fail_orphaned_runs() -> int:
+    """
+    Mark every run still flagged 'running' as 'error'.
+
+    Runs execute in-process (within the /start request), so a run left 'running'
+    can only be a leftover from a process restart/crash — the executor is gone.
+    Reconciling these on startup prevents a stranded run from holding the
+    concurrency lock and blocking every future simulation. Returns the count.
+    """
+    query = """
+    UPDATE pipeline_runs
+    SET status = 'error',
+        finished_at = NOW()
+    WHERE status = 'running'
+    """
+
+    with get_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            affected = cur.rowcount
+
+        conn.commit()
+
+    return affected
+
+
 def cancel_run(run_id: str) -> dict | None:
     query = """
     UPDATE pipeline_runs

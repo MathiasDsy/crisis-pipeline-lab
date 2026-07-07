@@ -1,3 +1,10 @@
+# Client stack — the whole application in one command:
+#
+#   docker compose up -d --build
+#
+# Brings up postgres, model-server, pipeline-api, photon and the frontend, with
+# geocoding enabled by default. For local development with selectable profiles,
+# use docker-compose.dev.yml instead.
 services:
   model-server:
     build:
@@ -15,9 +22,6 @@ services:
         "8001",
       ]
     volumes:
-      - ./backend/model_api/src:/app/src
-      - ./backend/model_api/scripts:/app/scripts
-      - ./backend/shared:/app/shared
       - ./backend/storage:/app/storage
       - ./models_cache:/models_cache
     environment:
@@ -29,28 +33,56 @@ services:
       - GLINER_MODEL_PATH=/app/storage/models/gliner_multi-v2.1
     ports:
       - "8001:8001"
+    healthcheck:
+      # Consider the model server "up" only once its HTTP API answers.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8001/health', timeout=3).status == 200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
     restart: unless-stopped
 
   pipeline-api:
     build:
       context: ./backend
       dockerfile: app_api/Dockerfile
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
+    command: uvicorn src.main:app --host 0.0.0.0 --port 8000
     ports:
       - "8000:8000"
     volumes:
-      - ./backend/app_api/src:/app/src
-      - ./backend/shared:/app/shared
       - ./backend/storage:/app/storage
     environment:
       - PYTHONPATH=/app
       - DATABASE_URL=postgresql://crisis:crisis@postgres:5432/crisis_db
       - MODEL_API_URL=http://model-server:8001
       - PHOTON_API_URL=http://photon:2322/api
+      - GEOCODING_ENABLED=${GEOCODING_ENABLED:-true}
     depends_on:
-      - postgres
-      - model-server
-      - photon
+      postgres:
+        condition: service_healthy
+      model-server:
+        condition: service_healthy
+      photon:
+        condition: service_started
+    healthcheck:
+      # Consider the pipeline API "up" only once its HTTP API answers.
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8000/admin/health', timeout=3).status == 200 else 1)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
     restart: unless-stopped
 
   photon:
@@ -61,7 +93,7 @@ services:
       - "2322:2322"
     volumes:
       - ./services/photon/data:/data
-    restart: no
+    restart: unless-stopped
 
   postgres:
     image: postgres:16-alpine
@@ -75,6 +107,12 @@ services:
     volumes:
       - crisis_postgres_data:/var/lib/postgresql/data
       - ./services/postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U crisis -d crisis_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
 
   frontend:
     build:
@@ -83,18 +121,18 @@ services:
     ports:
       - "5173:5173"
     volumes:
+      # Dockerfile.dev only installs deps; the app source is provided here.
       - ./frontend:/app
       - /app/node_modules
     environment:
       - VITE_API_URL=http://localhost:8000
-      - CHOKIDAR_USEPOLLING=true
-      - CHOKIDAR_INTERVAL=300
-      - WATCHPACK_POLLING=true
     command: npm run dev -- --host 0.0.0.0
     restart: unless-stopped
     depends_on:
-      - pipeline-api
-      - model-server
+      pipeline-api:
+        condition: service_healthy
+      model-server:
+        condition: service_healthy
 
 volumes:
   crisis_postgres_data:

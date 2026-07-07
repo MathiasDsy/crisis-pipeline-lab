@@ -16,6 +16,30 @@ from src.routes.tweets import router as tweet_router
 import src.logger as logger
 
 
+def _reconcile_orphaned_executions() -> None:
+    """
+    Release the concurrency lock from executions stranded by a previous restart.
+
+    Runs and benchmarks execute in-process, so anything still 'running' at boot
+    is orphaned and would otherwise block every new simulation forever.
+    """
+    from src.repositories.run_repository import fail_orphaned_runs
+    from src.repositories.benchmark_repository import fail_orphaned_benchmarks
+
+    try:
+        runs = fail_orphaned_runs()
+        benchmarks = fail_orphaned_benchmarks()
+        if runs or benchmarks:
+            logger.info(
+                f"Reconciled orphaned executions: {runs} run(s), {benchmarks} benchmark(s) marked as error",
+                context="startup",
+            )
+        else:
+            logger.info("No orphaned executions to reconcile", context="startup")
+    except Exception as exc:
+        logger.error("Orphaned execution reconciliation failed", context="startup", exc=exc)
+
+
 def _run_discovery() -> None:
     from src.services.dataset_discovery import discover_datasets
     from src.services.model_discovery import discover_models_from_storage
@@ -66,7 +90,8 @@ def _run_discovery() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    logger.info("API starting up — running discovery", context="startup")
+    logger.info("API starting up — reconciling state and running discovery", context="startup")
+    _reconcile_orphaned_executions()
     _run_discovery()
     yield
     logger.info("API shutting down", context="startup")
@@ -80,6 +105,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
+        "*",
         "http://localhost:5173",
         "http://127.0.0.1:5173",
     ],
